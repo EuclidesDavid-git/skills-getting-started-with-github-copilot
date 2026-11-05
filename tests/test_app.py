@@ -1,97 +1,202 @@
-import unittest
+from copy import deepcopy
+from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.app import activities, app
 
 
-class ActivityApiTests(unittest.TestCase):
-    def setUp(self):
-        self.client = TestClient(app)
-        self.original_participants = {
-            name: list(activity["participants"])
-            for name, activity in activities.items()
-        }
-
-    def tearDown(self):
-        for name, participants in self.original_participants.items():
-            activities[name]["participants"][:] = participants
-
-    def test_homepage_and_activity_catalog(self):
-        homepage = self.client.get("/")
-        response = self.client.get("/activities")
-        activity_data = response.json()
-
-        self.assertEqual(homepage.status_code, 200)
-        self.assertIn("Mergington High School", homepage.text)
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(
-            {"Chess Club", "Programming Class", "Gym Class"}.issubset(activity_data)
-        )
-        self.assertTrue(
-            {
-                "Basketball Team",
-                "Soccer Club",
-                "Track and Field",
-                "Art Club",
-                "Drama Club",
-                "Debate Club",
-                "Science Club",
-            }.issubset(activity_data)
-        )
-        required_fields = {"description", "schedule", "max_participants", "participants"}
-        for activity in activity_data.values():
-            self.assertTrue(required_fields.issubset(activity))
-
-    def test_signup_rejects_duplicate_and_updates_available_spots(self):
-        email = "duplicate-regression@mergington.edu"
-        signup_url = "/activities/Art%20Club/signup"
-        original_spots = activities["Art Club"]["max_participants"] - len(
-            activities["Art Club"]["participants"]
-        )
-
-        first_response = self.client.post(signup_url, params={"email": email})
-        duplicate_response = self.client.post(signup_url, params={"email": email})
-        current_activity = self.client.get("/activities").json()["Art Club"]
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(duplicate_response.status_code, 400)
-        self.assertEqual(
-            duplicate_response.json()["detail"], "Student is already signed up"
-        )
-        self.assertEqual(current_activity["participants"].count(email), 1)
-        self.assertEqual(
-            current_activity["max_participants"] - len(current_activity["participants"]),
-            original_spots - 1,
-        )
-
-    def test_unregister_removes_participant_and_frees_spot(self):
-        email = "unregister-regression@mergington.edu"
-        activity_url = "/activities/Art%20Club"
-        self.client.post(activity_url + "/signup", params={"email": email})
-        delete_response = self.client.delete(
-            activity_url + "/participants", params={"email": email}
-        )
-        current_activity = self.client.get("/activities").json()["Art Club"]
-
-        self.assertEqual(delete_response.status_code, 200)
-        self.assertNotIn(email, current_activity["participants"])
-        self.assertEqual(
-            current_activity["max_participants"] - len(current_activity["participants"]),
-            activities["Art Club"]["max_participants"]
-            - len(self.original_participants["Art Club"]),
-        )
-
-    def test_frontend_renders_participants_and_refreshes_after_signup(self):
-        script = self.client.get("/static/app.js?v=2")
-        stylesheet = self.client.get("/static/styles.css")
-
-        self.assertEqual(script.headers.get("cache-control"), "no-store")
-        self.assertIn("details.participants.forEach", script.text)
-        self.assertIn("signupForm.reset();\n        await fetchActivities();", script.text)
-        self.assertIn('method: "DELETE"', script.text)
-        self.assertIn("list-style: none", stylesheet.text)
+@pytest.fixture
+def client():
+    original_activities = deepcopy(activities)
+    with TestClient(app) as test_client:
+        yield test_client
+    activities.clear()
+    activities.update(original_activities)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def activity_url(activity_name, suffix=""):
+    return f"/activities/{quote(activity_name, safe='')}{suffix}"
+
+
+def test_homepage_redirects_to_static_activity_page(client):
+    # Arrange
+    expected_page = "/static/index.html?v=2"
+
+    # Act
+    redirect = client.get("/", follow_redirects=False)
+    page = client.get(expected_page)
+
+    # Assert
+    assert redirect.status_code == 307
+    assert redirect.headers["location"] == expected_page
+    assert page.status_code == 200
+    assert "Mergington High School" in page.text
+
+
+def test_activity_catalog_contains_original_and_added_activities(client):
+    # Arrange
+    expected_names = {
+        "Chess Club",
+        "Programming Class",
+        "Gym Class",
+        "Basketball Team",
+        "Soccer Club",
+        "Track and Field",
+        "Art Club",
+        "Drama Club",
+        "Debate Club",
+        "Science Club",
+    }
+    required_fields = {"description", "schedule", "max_participants", "participants"}
+
+    # Act
+    response = client.get("/activities")
+    catalog = response.json()
+
+    # Assert
+    assert response.status_code == 200
+    assert expected_names.issubset(catalog)
+    assert all(required_fields.issubset(activity) for activity in catalog.values())
+    assert "michael@mergington.edu" in catalog["Chess Club"]["participants"]
+
+
+def test_signup_adds_participant_and_updates_remaining_spots(client):
+    # Arrange
+    activity_name = "Art Club"
+    email = "pytest-signup@mergington.edu"
+    activity_before = client.get("/activities").json()[activity_name]
+    spots_before = activity_before["max_participants"] - len(activity_before["participants"])
+
+    # Act
+    response = client.post(activity_url(activity_name, "/signup"), params={"email": email})
+    activity_after = client.get("/activities").json()[activity_name]
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["message"] == f"Signed up {email} for {activity_name}"
+    assert activity_after["participants"].count(email) == 1
+    assert activity_after["max_participants"] - len(activity_after["participants"]) == spots_before - 1
+
+
+def test_signup_rejects_duplicate_without_changing_participant_list(client):
+    # Arrange
+    activity_name = "Art Club"
+    email = "pytest-duplicate@mergington.edu"
+    signup_url = activity_url(activity_name, "/signup")
+    client.post(signup_url, params={"email": email})
+    participants_before_duplicate = client.get("/activities").json()[activity_name]["participants"]
+
+    # Act
+    response = client.post(signup_url, params={"email": email})
+    participants_after_duplicate = client.get("/activities").json()[activity_name]["participants"]
+
+    # Assert
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Student is already signed up"
+    assert participants_after_duplicate == participants_before_duplicate
+    assert participants_after_duplicate.count(email) == 1
+
+
+def test_signup_rejects_unknown_activity(client):
+    # Arrange
+    email = "pytest-unknown@mergington.edu"
+
+    # Act
+    response = client.post(activity_url("Unknown Activity", "/signup"), params={"email": email})
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Activity not found"
+
+
+def test_signup_requires_email_query_parameter(client):
+    # Arrange
+    signup_url = activity_url("Art Club", "/signup")
+
+    # Act
+    response = client.post(signup_url)
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"][-1] == "email"
+
+
+def test_unregister_removes_participant_and_restores_spot(client):
+    # Arrange
+    activity_name = "Art Club"
+    email = "pytest-unregister@mergington.edu"
+    signup_url = activity_url(activity_name, "/signup")
+    participants_before = client.get("/activities").json()[activity_name]["participants"]
+    spots_before = client.get("/activities").json()[activity_name]["max_participants"] - len(participants_before)
+    client.post(signup_url, params={"email": email})
+
+    # Act
+    response = client.delete(
+        activity_url(activity_name, "/participants"), params={"email": email}
+    )
+    activity_after = client.get("/activities").json()[activity_name]
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["message"] == f"Unregistered {email} from {activity_name}"
+    assert email not in activity_after["participants"]
+    assert activity_after["max_participants"] - len(activity_after["participants"]) == spots_before
+
+
+def test_unregister_rejects_unknown_activity(client):
+    # Arrange
+    email = "pytest-delete-unknown@mergington.edu"
+
+    # Act
+    response = client.delete(
+        activity_url("Unknown Activity", "/participants"), params={"email": email}
+    )
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Activity not found"
+
+
+def test_unregister_rejects_unregistered_participant(client):
+    # Arrange
+    activity_name = "Art Club"
+    email = "not-registered@mergington.edu"
+
+    # Act
+    response = client.delete(
+        activity_url(activity_name, "/participants"), params={"email": email}
+    )
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Participant not found"
+
+
+def test_unregister_requires_email_query_parameter(client):
+    # Arrange
+    delete_url = activity_url("Art Club", "/participants")
+
+    # Act
+    response = client.delete(delete_url)
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"][-1] == "email"
+
+
+def test_frontend_participant_refresh_contract_and_static_cache(client):
+    # Arrange
+    script_url = "/static/app.js?v=2"
+
+    # Act
+    script = client.get(script_url)
+    stylesheet = client.get("/static/styles.css")
+
+    # Assert
+    assert script.headers["cache-control"] == "no-store"
+    assert "details.participants.forEach" in script.text
+    assert "signupForm.reset();\n        await fetchActivities();" in script.text
+    assert 'method: "DELETE"' in script.text
+    assert "list-style: none" in stylesheet.text
