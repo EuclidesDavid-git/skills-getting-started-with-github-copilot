@@ -48,7 +48,7 @@ activities = {
         "participants": ["john@mergington.edu", "olivia@mergington.edu"]
     },
     "Basketball Team": {
-        "description": "Build teamwork and compete in basketball games",
+        "description": "Build teamwork, practice basketball skills, and compete in games",
         "schedule": "Tuesdays and Thursdays, 4:00 PM - 5:30 PM",
         "max_participants": 15,
         "participants": []
@@ -59,6 +59,12 @@ activities = {
         "max_participants": 22,
         "participants": []
     },
+    "Track and Field": {
+        "description": "Train for running, jumping, and throwing events",
+        "schedule": "Thursdays, 3:30 PM - 5:00 PM",
+        "max_participants": 20,
+        "participants": []
+    },
     "Art Club": {
         "description": "Explore drawing, painting, and other visual arts",
         "schedule": "Mondays, 3:30 PM - 5:00 PM",
@@ -66,21 +72,21 @@ activities = {
         "participants": []
     },
     "Drama Club": {
-        "description": "Practice acting and create performances together",
-        "schedule": "Tuesdays, 3:30 PM - 5:00 PM",
+        "description": "Practice acting and create stage performances together",
+        "schedule": "Tuesdays and Wednesdays, 3:30 PM - 5:00 PM",
         "max_participants": 20,
         "participants": []
     },
     "Debate Club": {
-        "description": "Develop public speaking and critical thinking skills",
-        "schedule": "Thursdays, 3:30 PM - 4:30 PM",
+        "description": "Research topics and develop critical thinking and persuasive public speaking skills",
+        "schedule": "Tuesdays and Thursdays, 3:30 PM - 4:30 PM",
         "max_participants": 16,
         "participants": []
     },
     "Science Club": {
-        "description": "Investigate scientific questions through hands-on projects",
+        "description": "Explore scientific ideas and investigate questions through hands-on experiments and projects",
         "schedule": "Fridays, 3:30 PM - 4:30 PM",
-        "max_participants": 16,
+        "max_participants": 18,
         "participants": []
     }
 }

@@ -32,12 +32,16 @@ class ActivityApiTests(unittest.TestCase):
             {
                 "Basketball Team",
                 "Soccer Club",
+                "Track and Field",
                 "Art Club",
                 "Drama Club",
                 "Debate Club",
                 "Science Club",
             }.issubset(activity_data)
         )
+        required_fields = {"description", "schedule", "max_participants", "participants"}
+        for activity in activity_data.values():
+            self.assertTrue(required_fields.issubset(activity))
 
     def test_signup_rejects_duplicate_and_updates_available_spots(self):
         email = "duplicate-regression@mergington.edu"
